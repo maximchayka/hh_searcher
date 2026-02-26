@@ -1,3 +1,6 @@
+import json
+
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -7,6 +10,20 @@ class Settings(BaseSettings):
     SECRET_KEY: str = "change-me"
     DEBUG: bool = False
     ALLOWED_ORIGINS: list[str] = ["http://localhost:3000"]
+
+    @field_validator("ALLOWED_ORIGINS", mode="before")
+    @classmethod
+    def parse_origins(cls, v: object) -> object:
+        if not isinstance(v, str):
+            return v
+        v = v.strip()
+        if not v:
+            return ["http://localhost:3000"]
+        # Try JSON array: ["url1","url2"]
+        if v.startswith("["):
+            return json.loads(v)
+        # Otherwise comma-separated plain URLs
+        return [u.strip() for u in v.split(",") if u.strip()]
 
     DATABASE_URL: str = "postgresql+asyncpg://jobautoapply:jobautoapply@db:5432/jobautoapply"
 
