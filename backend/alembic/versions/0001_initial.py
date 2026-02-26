@@ -82,7 +82,7 @@ def upgrade() -> None:
         sa.Column("daily_limit", sa.Integer, default=50),
         sa.Column("per_run_limit", sa.Integer, default=20),
         sa.Column("per_company_limit", sa.Integer, default=3),
-        sa.Column("celery_task_id", sa.String, nullable=True),
+        sa.Column("last_run_at", sa.DateTime(timezone=True), nullable=True),
         sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now()),
         sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.func.now()),
     )

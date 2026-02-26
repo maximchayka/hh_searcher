@@ -1,4 +1,6 @@
 from celery import Celery
+from celery.schedules import crontab
+
 from app.core.config import settings
 
 celery_app = Celery(
@@ -14,7 +16,11 @@ celery_app.conf.update(
     accept_content=["json"],
     timezone="UTC",
     enable_utc=True,
-    # RedBeat scheduler config
-    redbeat_redis_url=settings.REDIS_URL,
-    beat_scheduler="redbeat.RedBeatScheduler",
+    # Built-in file-based scheduler — no external dependencies
+    beat_schedule={
+        "check-due-job-tasks": {
+            "task": "app.tasks.job_tasks.check_due_tasks",
+            "schedule": 60.0,  # every 60 seconds
+        },
+    },
 )

@@ -72,7 +72,7 @@ services:
         condition: service_healthy
     volumes:
       - ./backend:/app
-    command: celery -A app.tasks.celery_app beat --loglevel=info --scheduler redbeat.RedBeatScheduler
+    command: celery -A app.tasks.celery_app beat --loglevel=info
 
   frontend:
     build:

@@ -22,7 +22,6 @@ async def create_task(
     db.add(task)
     await db.commit()
     await db.refresh(task)
-    _schedule_task(task)
     return task
 
 
@@ -122,39 +121,3 @@ async def get_task_logs(
         .limit(50)
     )
     return logs_result.scalars().all()
-
-
-def _schedule_task(task: JobTask):
-    """Register task with Celery Beat via RedBeat."""
-    from redbeat import RedBeatSchedulerEntry
-    from celery.schedules import crontab, schedule as celery_schedule
-    from datetime import timedelta
-    from app.tasks.celery_app import celery_app
-
-    freq_map = {
-        "15min": celery_schedule(timedelta(minutes=15)),
-        "30min": celery_schedule(timedelta(minutes=30)),
-        "1h": celery_schedule(timedelta(hours=1)),
-        "daily": celery_schedule(timedelta(days=1)),
-    }
-
-    if task.frequency.value == "custom" and task.custom_cron:
-        parts = task.custom_cron.split()
-        if len(parts) == 5:
-            sched = crontab(
-                minute=parts[0], hour=parts[1],
-                day_of_month=parts[2], month_of_year=parts[3], day_of_week=parts[4]
-            )
-        else:
-            sched = freq_map["1h"]
-    else:
-        sched = freq_map.get(task.frequency.value, freq_map["1h"])
-
-    entry = RedBeatSchedulerEntry(
-        name=f"job_task_{task.id}",
-        task="app.tasks.job_tasks.run_job_task",
-        schedule=sched,
-        args=[task.id],
-        app=celery_app,
-    )
-    entry.save()
