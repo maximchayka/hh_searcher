@@ -2,7 +2,7 @@
 import asyncio
 import json
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from celery import Task
 
@@ -10,9 +10,17 @@ from app.tasks.celery_app import celery_app
 
 logger = logging.getLogger(__name__)
 
+# Frequency → interval in seconds
+FREQ_INTERVALS = {
+    "15min": 15 * 60,
+    "30min": 30 * 60,
+    "1h":    60 * 60,
+    "daily": 24 * 60 * 60,
+}
+
 
 def run_async(coro):
-    """Run coroutine in new event loop (Celery workers are sync)."""
+    """Run coroutine in a fresh event loop (Celery workers are synchronous)."""
     loop = asyncio.new_event_loop()
     try:
         return loop.run_until_complete(coro)
@@ -20,9 +28,61 @@ def run_async(coro):
         loop.close()
 
 
+def _is_due(task) -> bool:
+    """Return True if the job task is due for execution."""
+    now = datetime.now(timezone.utc)
+
+    if task.frequency.value == "custom" and task.custom_cron:
+        try:
+            from croniter import croniter
+            itr = croniter(task.custom_cron, task.last_run_at or task.created_at)
+            next_run = itr.get_next(datetime)
+            return now >= next_run
+        except Exception:
+            pass  # fall through to default
+
+    interval = FREQ_INTERVALS.get(task.frequency.value, 3600)
+    if task.last_run_at is None:
+        return True
+    return (now - task.last_run_at).total_seconds() >= interval
+
+
+@celery_app.task
+def check_due_tasks() -> dict:
+    """
+    Runs every 60 s via Celery Beat.
+    Finds all ACTIVE job tasks that are due and dispatches run_job_task for each.
+    """
+    return run_async(_check_due_tasks_async())
+
+
+async def _check_due_tasks_async() -> dict:
+    from sqlalchemy import select
+    from app.core.database import AsyncSessionLocal
+    from app.models.job_task import JobTask, TaskStatus
+
+    dispatched = []
+    async with AsyncSessionLocal() as db:
+        result = await db.execute(
+            select(JobTask).where(JobTask.status == TaskStatus.ACTIVE)
+        )
+        tasks = result.scalars().all()
+
+        for task in tasks:
+            if _is_due(task):
+                run_job_task.delay(task.id)
+                task.last_run_at = datetime.now(timezone.utc)
+                dispatched.append(task.id)
+
+        if dispatched:
+            await db.commit()
+
+    return {"dispatched": dispatched}
+
+
 @celery_app.task(bind=True, max_retries=3, default_retry_delay=60)
 def run_job_task(self: Task, job_task_id: int) -> dict:
-    """Main periodic task: search, filter, apply."""
+    """Execute a single job task: search → filter → apply → log."""
     return run_async(_run_job_task_async(self, job_task_id))
 
 
@@ -31,7 +91,6 @@ async def _run_job_task_async(task: Task, job_task_id: int) -> dict:
     from app.core.database import AsyncSessionLocal
     from app.core.security import decrypt_token
     from app.models.job_task import JobTask, JobTaskLog, TaskStatus
-    from app.models.search_template import SearchTemplate
     from app.models.cover_letter import CoverLetterTemplate
     from app.services.hh_client import HHClient
     from app.services.apply import submit_applications
@@ -39,7 +98,7 @@ async def _run_job_task_async(task: Task, job_task_id: int) -> dict:
     async with AsyncSessionLocal() as db:
         result = await db.execute(select(JobTask).where(JobTask.id == job_task_id))
         job_task = result.scalar_one_or_none()
-        if not job_task or job_task.status not in (TaskStatus.ACTIVE,):
+        if not job_task or job_task.status != TaskStatus.ACTIVE:
             return {"skipped": True}
 
         log = JobTaskLog(job_task_id=job_task_id)
@@ -52,13 +111,11 @@ async def _run_job_task_async(task: Task, job_task_id: int) -> dict:
             if not user.hh_access_token:
                 raise ValueError("User has no hh.ru token")
 
-            access_token = decrypt_token(user.hh_access_token)
-            hh = HHClient(access_token)
+            hh = HHClient(decrypt_token(user.hh_access_token))
 
             search_params = json.loads(job_task.search_template.params)
             search_result = await hh.search_vacancies(search_params)
             items = search_result.get("items", [])
-
             vacancy_ids = [v["id"] for v in items][: job_task.per_run_limit]
 
             cover_letter_body = None
@@ -72,12 +129,7 @@ async def _run_job_task_async(task: Task, job_task_id: int) -> dict:
                 if tmpl:
                     cover_letter_body = tmpl.body
 
-            active_resume = None
-            for resume in user.resumes:
-                if resume.is_active:
-                    active_resume = resume
-                    break
-
+            active_resume = next((r for r in user.resumes if r.is_active), None)
             if not active_resume:
                 raise ValueError("No active resume found")
 
@@ -97,7 +149,6 @@ async def _run_job_task_async(task: Task, job_task_id: int) -> dict:
             log.finished_at = datetime.now(timezone.utc)
             log.status = "success"
             await db.commit()
-
             return result_data
 
         except Exception as exc:

@@ -55,8 +55,7 @@ class JobTask(Base):
     per_run_limit: Mapped[int] = mapped_column(Integer, default=20)
     per_company_limit: Mapped[int] = mapped_column(Integer, default=3)
 
-    # Celery Beat task ID for dynamic scheduling
-    celery_task_id: Mapped[str | None] = mapped_column(String, nullable=True)
+    last_run_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
