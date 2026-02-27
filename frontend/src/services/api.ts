@@ -56,7 +56,28 @@ export const coverLettersApi = {
 
 // Search
 export const searchApi = {
-  search: (params: Record<string, unknown>) => api.get('/search/vacancies', { params }),
+  search: (params: Record<string, unknown>) =>
+    api.get('/search/vacancies', {
+      params,
+      // axios serializes arrays as foo[]=1&foo[]=2 by default; we need foo=1&foo=2
+      paramsSerializer: (p) => {
+        const parts: string[] = []
+        for (const [key, val] of Object.entries(p)) {
+          if (val === undefined || val === null || val === '') continue
+          if (Array.isArray(val)) {
+            val.forEach((v) => parts.push(`${key}=${encodeURIComponent(v)}`))
+          } else {
+            parts.push(`${key}=${encodeURIComponent(String(val))}`)
+          }
+        }
+        return parts.join('&')
+      },
+    }),
+  getAreas: () => api.get<{ id: string; name: string }[]>('/search/dictionaries/areas'),
+  getProfessionalRoles: () =>
+    api.get<{ id: string; name: string; category: string }[]>(
+      '/search/dictionaries/professional-roles',
+    ),
   listTemplates: () => api.get('/search/templates'),
   createTemplate: (name: string, params: Record<string, unknown>) =>
     api.post('/search/templates', { name, params }),

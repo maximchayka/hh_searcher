@@ -27,18 +27,23 @@ export interface CoverLetterTemplate {
 }
 
 export interface SearchParams {
-  text?: string
-  excluded_text?: string
-  area?: string[]
-  remote?: boolean
-  salary_from?: number | null
-  salary_to?: number | null
-  experience?: string
-  employment?: string[]
-  schedule?: string[]
-  employer_id?: string | null
-  date_from?: string | null
-  order_by?: string
+  text: string
+  search_field: string[]      // name, company_name, description
+  excluded_text: string
+  area: string[]
+  experience: string          // noExperience | between1And3 | between3And6 | moreThan6
+  employment: string[]        // full | part | project | volunteer | probation
+  schedule: string[]          // fullDay | shift | flexible | remote | flyInFlyOut
+  salary: string              // numeric string, empty = not set
+  currency_code: string       // RUR | USD | EUR
+  only_with_salary: boolean
+  label: string[]             // not_from_agency | accredited_it | with_address | accept_handicapped | internship
+  professional_role: string[]
+  industry: string[]
+  date_from: string
+  date_to: string
+  order_by: string            // relevance | publication_time | salary_desc | salary_asc
+  per_page: number
 }
 
 export interface SearchTemplate {
@@ -109,9 +114,23 @@ export interface Vacancy {
   id: string
   name: string
   employer: { name: string; logo_urls?: Record<string, string> }
-  salary: { from?: number; to?: number; currency: string } | null
+  salary: { from?: number; to?: number; currency: string; gross?: boolean } | null
   area: { name: string }
   snippet: { requirement?: string; responsibility?: string }
+  schedule: { id: string; name: string } | null
+  experience: { id: string; name: string } | null
+  employment: { id: string; name: string } | null
   published_at: string
   alternate_url: string
+}
+
+export interface HHArea {
+  id: string
+  name: string
+}
+
+export interface HHRole {
+  id: string
+  name: string
+  category: string
 }

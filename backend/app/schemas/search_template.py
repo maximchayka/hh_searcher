@@ -1,20 +1,26 @@
 from datetime import datetime
+
 from pydantic import BaseModel
 
 
 class SearchParams(BaseModel):
     text: str = ""
+    search_field: list[str] = []  # name, company_name, description
     excluded_text: str = ""
     area: list[str] = []
-    remote: bool = False
-    salary_from: int | None = None
-    salary_to: int | None = None
-    experience: str = "noExperience"
-    employment: list[str] = []
-    schedule: list[str] = []
-    employer_id: str | None = None
-    date_from: str | None = None
+    experience: str = ""  # noExperience, between1And3, between3And6, moreThan6
+    employment: list[str] = []  # full, part, project, volunteer, probation
+    schedule: list[str] = []  # fullDay, shift, flexible, remote, flyInFlyOut
+    salary: int | None = None
+    currency_code: str = "RUR"
+    only_with_salary: bool = False
+    label: list[str] = []  # not_from_agency, accredited_it, with_address, accept_handicapped, internship
+    professional_role: list[str] = []
+    industry: list[str] = []
+    date_from: str = ""
+    date_to: str = ""
     order_by: str = "publication_time"
+    per_page: int = 20
 
 
 class SearchTemplateCreate(BaseModel):
