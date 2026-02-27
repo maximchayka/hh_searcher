@@ -163,6 +163,18 @@ setup_env() {
   sed_inplace "s|^SECRET_KEY=.*|SECRET_KEY=${SECRET_KEY}|" .env
   success "SECRET_KEY сгенерирован"
 
+  # Определяем IP и прописываем ALLOWED_ORIGINS
+  MACHINE_IP=$(detect_ip)
+  if [[ -n "$MACHINE_IP" ]]; then
+    ALLOWED_ORIGINS="http://localhost:3000,http://${MACHINE_IP}:3000"
+    info "Определён IP машины: ${MACHINE_IP}"
+  else
+    ALLOWED_ORIGINS="http://localhost:3000"
+    warn "Не удалось определить IP машины — используем только localhost"
+  fi
+  sed_inplace "s|^ALLOWED_ORIGINS=.*|ALLOWED_ORIGINS=${ALLOWED_ORIGINS}|" .env
+  success "ALLOWED_ORIGINS установлен: ${ALLOWED_ORIGINS}"
+
   echo ""
   echo -e "${YELLOW}┌─────────────────────────────────────────────┐${RESET}"
   echo -e "${YELLOW}│  Для работы с hh.ru API нужны OAuth-ключи  │${RESET}"
@@ -196,6 +208,40 @@ sed_inplace() {
   else
     sed -i "$1" "$2"
   fi
+}
+
+# ─── Определение IP-адреса машины ─────────────────────────────────────────────
+detect_ip() {
+  local ip=""
+
+  # Метод 1: через маршрут до внешнего адреса (Linux, самый надёжный)
+  if command -v ip &>/dev/null; then
+    ip=$(ip route get 1.1.1.1 2>/dev/null | grep -oP 'src \K\S+' | head -1)
+  fi
+
+  # Метод 2: hostname -I (Linux)
+  if [[ -z "$ip" ]] && command -v hostname &>/dev/null; then
+    ip=$(hostname -I 2>/dev/null | awk '{print $1}')
+  fi
+
+  # Метод 3: ipconfig getifaddr (macOS, en0 — Wi-Fi, en1 — Ethernet)
+  if [[ -z "$ip" ]] && command -v ipconfig &>/dev/null; then
+    ip=$(ipconfig getifaddr en0 2>/dev/null || ipconfig getifaddr en1 2>/dev/null || true)
+  fi
+
+  # Метод 4: ifconfig (универсальный fallback)
+  if [[ -z "$ip" ]] && command -v ifconfig &>/dev/null; then
+    ip=$(ifconfig 2>/dev/null \
+      | grep 'inet ' \
+      | grep -v '127\.0\.0\.1' \
+      | awk '{print $2}' \
+      | head -1)
+  fi
+
+  # Убираем prefixlen если ifconfig вернул addr/prefix
+  ip="${ip%%/*}"
+
+  echo "$ip"
 }
 
 # ─── Docker ──────────────────────────────────────────────────────────────────
@@ -259,14 +305,23 @@ show_status() {
   header "Статус сервисов"
   $COMPOSE_CMD ps
 
+  local ip
+  ip=$(detect_ip)
+
   echo ""
-  echo -e "${BOLD}${GREEN}╔══════════════════════════════════════════╗${RESET}"
-  echo -e "${BOLD}${GREEN}║        JobAutoApply запущен!             ║${RESET}"
-  echo -e "${BOLD}${GREEN}╠══════════════════════════════════════════╣${RESET}"
-  echo -e "${BOLD}${GREEN}║  Frontend:   http://localhost:3000       ║${RESET}"
-  echo -e "${BOLD}${GREEN}║  Backend:    http://localhost:8000       ║${RESET}"
-  echo -e "${BOLD}${GREEN}║  API Docs:   http://localhost:8000/docs  ║${RESET}"
-  echo -e "${BOLD}${GREEN}╚══════════════════════════════════════════╝${RESET}"
+  echo -e "${BOLD}${GREEN}╔══════════════════════════════════════════════════════╗${RESET}"
+  echo -e "${BOLD}${GREEN}║             JobAutoApply запущен!                    ║${RESET}"
+  echo -e "${BOLD}${GREEN}╠══════════════════════════════════════════════════════╣${RESET}"
+  echo -e "${BOLD}${GREEN}║  Frontend:   http://localhost:3000                   ║${RESET}"
+  echo -e "${BOLD}${GREEN}║  Backend:    http://localhost:8000                   ║${RESET}"
+  echo -e "${BOLD}${GREEN}║  API Docs:   http://localhost:8000/docs              ║${RESET}"
+  if [[ -n "$ip" ]]; then
+  echo -e "${BOLD}${GREEN}╠══════════════════════════════════════════════════════╣${RESET}"
+  echo -e "${BOLD}${GREEN}║  По IP (из сети):                                    ║${RESET}"
+  printf "${BOLD}${GREEN}║  Frontend:   http://%-33s║${RESET}\n" "${ip}:3000"
+  printf "${BOLD}${GREEN}║  Backend:    http://%-33s║${RESET}\n" "${ip}:8000"
+  fi
+  echo -e "${BOLD}${GREEN}╚══════════════════════════════════════════════════════╝${RESET}"
   echo ""
   echo -e "Полезные команды:"
   echo -e "  ${CYAN}$COMPOSE_CMD logs -f${RESET}          — логи всех сервисов"
