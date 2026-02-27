@@ -41,11 +41,11 @@ class JobTask(Base):
     )
 
     name: Mapped[str] = mapped_column(String, nullable=False)
-    frequency: Mapped[TaskFrequency] = mapped_column(Enum(TaskFrequency), nullable=False)
+    frequency: Mapped[TaskFrequency] = mapped_column(Enum(TaskFrequency, native_enum=False), nullable=False)
     custom_cron: Mapped[str | None] = mapped_column(String, nullable=True)
 
-    action: Mapped[TaskAction] = mapped_column(Enum(TaskAction), default=TaskAction.AUTO_APPLY)
-    status: Mapped[TaskStatus] = mapped_column(Enum(TaskStatus), default=TaskStatus.ACTIVE)
+    action: Mapped[TaskAction] = mapped_column(Enum(TaskAction, native_enum=False), default=TaskAction.AUTO_APPLY)
+    status: Mapped[TaskStatus] = mapped_column(Enum(TaskStatus, native_enum=False), default=TaskStatus.ACTIVE)
 
     only_new: Mapped[bool] = mapped_column(Boolean, default=True)
     skip_applied: Mapped[bool] = mapped_column(Boolean, default=True)
