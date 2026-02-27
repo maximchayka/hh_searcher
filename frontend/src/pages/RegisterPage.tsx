@@ -31,8 +31,12 @@ type OTPData = z.infer<typeof otpSchema>
 
 export default function RegisterPage() {
   const navigate = useNavigate()
-  const [step, setStep] = useState<'register' | 'otp'>('register')
-  const [pendingEmail, setPendingEmail] = useState('')
+  const [step, setStep] = useState<'register' | 'otp'>(
+    () => (sessionStorage.getItem('reg_step') as 'otp' | null) ?? 'register',
+  )
+  const [pendingEmail, setPendingEmail] = useState(
+    () => sessionStorage.getItem('reg_email') ?? '',
+  )
 
   const registerForm = useForm<RegisterData>({ resolver: zodResolver(registerSchema) })
   const otpForm = useForm<OTPData>({ resolver: zodResolver(otpSchema) })
@@ -40,6 +44,8 @@ export default function RegisterPage() {
   const onRegister = async (data: RegisterData) => {
     try {
       await authApi.register(data.email, data.password)
+      sessionStorage.setItem('reg_email', data.email)
+      sessionStorage.setItem('reg_step', 'otp')
       setPendingEmail(data.email)
       setStep('otp')
       toast.success('Код подтверждения отправлен на email')
@@ -52,6 +58,8 @@ export default function RegisterPage() {
   const onVerifyOtp = async (data: OTPData) => {
     try {
       await authApi.verifyOtp(pendingEmail, data.otp)
+      sessionStorage.removeItem('reg_email')
+      sessionStorage.removeItem('reg_step')
       toast.success('Аккаунт создан! Войдите.')
       navigate('/login')
     } catch (err: any) {
@@ -145,7 +153,11 @@ export default function RegisterPage() {
 
               <button
                 type="button"
-                onClick={() => setStep('register')}
+                onClick={() => {
+                  sessionStorage.removeItem('reg_email')
+                  sessionStorage.removeItem('reg_step')
+                  setStep('register')
+                }}
                 className="w-full py-2 text-sm text-gray-500 hover:text-gray-700"
               >
                 Изменить email
