@@ -163,13 +163,13 @@ setup_env() {
   sed_inplace "s|^SECRET_KEY=.*|SECRET_KEY=${SECRET_KEY}|" .env
   success "SECRET_KEY сгенерирован"
 
-  # Определяем IP и прописываем ALLOWED_ORIGINS
+  # Определяем IP и прописываем ALLOWED_ORIGINS в JSON-формате (требует pydantic-settings)
   MACHINE_IP=$(detect_ip)
   if [[ -n "$MACHINE_IP" ]]; then
-    ALLOWED_ORIGINS="http://localhost:3000,http://${MACHINE_IP}:3000"
+    ALLOWED_ORIGINS='["http://localhost:3000","http://'"${MACHINE_IP}"':3000"]'
     info "Определён IP машины: ${MACHINE_IP}"
   else
-    ALLOWED_ORIGINS="http://localhost:3000"
+    ALLOWED_ORIGINS='["http://localhost:3000"]'
     warn "Не удалось определить IP машины — используем только localhost"
   fi
   sed_inplace "s|^ALLOWED_ORIGINS=.*|ALLOWED_ORIGINS=${ALLOWED_ORIGINS}|" .env

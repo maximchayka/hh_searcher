@@ -1,6 +1,6 @@
 import json
 
-from pydantic import field_validator
+from pydantic import Field, computed_field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -9,20 +9,27 @@ class Settings(BaseSettings):
 
     SECRET_KEY: str = "change-me"
     DEBUG: bool = False
-    ALLOWED_ORIGINS: list[str] = ["http://localhost:3000"]
 
-    @field_validator("ALLOWED_ORIGINS", mode="before")
-    @classmethod
-    def parse_origins(cls, v: object) -> object:
-        if not isinstance(v, str):
-            return v
-        v = v.strip()
+    # Declared as str so pydantic-settings does NOT attempt json.loads() on it.
+    # pydantic-settings v2 calls json.loads() only for complex types (list/dict).
+    # The env var is still named ALLOWED_ORIGINS (via validation_alias).
+    ALLOWED_ORIGINS_STR: str = Field(
+        default="http://localhost:3000",
+        validation_alias="ALLOWED_ORIGINS",
+    )
+
+    @computed_field  # type: ignore[misc]
+    @property
+    def ALLOWED_ORIGINS(self) -> list[str]:
+        v = self.ALLOWED_ORIGINS_STR.strip()
         if not v:
             return ["http://localhost:3000"]
-        # Try JSON array: ["url1","url2"]
-        if v.startswith("["):
-            return json.loads(v)
-        # Otherwise comma-separated plain URLs
+        try:
+            parsed = json.loads(v)
+            if isinstance(parsed, list):
+                return [str(u) for u in parsed]
+        except (ValueError, TypeError):
+            pass
         return [u.strip() for u in v.split(",") if u.strip()]
 
     DATABASE_URL: str = "postgresql+asyncpg://jobautoapply:jobautoapply@db:5432/jobautoapply"
@@ -39,6 +46,14 @@ class Settings(BaseSettings):
     OPENAI_API_KEY: str = ""
 
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24 * 7  # 7 days
+
+    # SMTP (for OTP emails)
+    SMTP_HOST: str = "smtp.gmail.com"
+    SMTP_PORT: int = 587
+    SMTP_USER: str = ""
+    SMTP_PASSWORD: str = ""
+    SMTP_FROM: str = ""
+    SMTP_TLS: bool = True
 
 
 settings = Settings()

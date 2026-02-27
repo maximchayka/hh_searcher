@@ -5,6 +5,8 @@ import logging
 from datetime import datetime, timedelta, timezone
 
 from celery import Task
+from sqlalchemy.pool import NullPool
+from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
 
 from app.tasks.celery_app import celery_app
 
@@ -21,11 +23,14 @@ FREQ_INTERVALS = {
 
 def run_async(coro):
     """Run coroutine in a fresh event loop (Celery workers are synchronous)."""
-    loop = asyncio.new_event_loop()
-    try:
-        return loop.run_until_complete(coro)
-    finally:
-        loop.close()
+    return asyncio.run(coro)
+
+
+def _make_session():
+    """Create a fresh DB session with NullPool — safe for Celery prefork workers."""
+    from app.core.config import settings
+    engine = create_async_engine(settings.DATABASE_URL, poolclass=NullPool)
+    return async_sessionmaker(engine, expire_on_commit=False)
 
 
 def _is_due(task) -> bool:
@@ -58,11 +63,10 @@ def check_due_tasks() -> dict:
 
 async def _check_due_tasks_async() -> dict:
     from sqlalchemy import select
-    from app.core.database import AsyncSessionLocal
     from app.models.job_task import JobTask, TaskStatus
 
     dispatched = []
-    async with AsyncSessionLocal() as db:
+    async with _make_session()() as db:
         result = await db.execute(
             select(JobTask).where(JobTask.status == TaskStatus.ACTIVE)
         )
@@ -88,14 +92,13 @@ def run_job_task(self: Task, job_task_id: int) -> dict:
 
 async def _run_job_task_async(task: Task, job_task_id: int) -> dict:
     from sqlalchemy import select
-    from app.core.database import AsyncSessionLocal
     from app.core.security import decrypt_token
     from app.models.job_task import JobTask, JobTaskLog, TaskStatus
     from app.models.cover_letter import CoverLetterTemplate
     from app.services.hh_client import HHClient
     from app.services.apply import submit_applications
 
-    async with AsyncSessionLocal() as db:
+    async with _make_session()() as db:
         result = await db.execute(select(JobTask).where(JobTask.id == job_task_id))
         job_task = result.scalar_one_or_none()
         if not job_task or job_task.status != TaskStatus.ACTIVE:

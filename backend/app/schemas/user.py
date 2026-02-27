@@ -28,6 +28,11 @@ class Token(BaseModel):
     token_type: str = "bearer"
 
 
+class OTPVerify(BaseModel):
+    email: EmailStr
+    otp: str
+
+
 class HHAuthCallback(BaseModel):
     code: str
     state: str | None = None
