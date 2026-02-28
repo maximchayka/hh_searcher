@@ -93,8 +93,9 @@ wait_for_nginx() {
   info "Жду готовности nginx на порту 80..."
   local retries=30
   while [[ $retries -gt 0 ]]; do
-    if curl -sf --max-time 2 "http://127.0.0.1/" &>/dev/null || \
-       curl -s  --max-time 2 "http://127.0.0.1/" -o /dev/null -w "%{http_code}" 2>/dev/null | grep -q '^[0-9]'; then
+    # curl без -f возвращает 0 для любого HTTP-ответа (включая 301);
+    # ненулевой код только при network error (connection refused / timeout)
+    if curl -s --max-time 3 "http://127.0.0.1/" -o /dev/null 2>/dev/null; then
       ok "nginx отвечает"
       return 0
     fi
@@ -103,9 +104,13 @@ wait_for_nginx() {
     sleep 2
   done
   echo ""
-  warn "nginx не отвечает за 60 секунд. Проверьте логи: $COMPOSE logs nginx"
+  warn "nginx не отвечает за 60 секунд."
+  echo ""
+  info "Логи nginx:"
+  $COMPOSE logs --tail=30 nginx
+  echo ""
   $COMPOSE ps
-  die "nginx не поднялся"
+  die "nginx не поднялся. Исправьте ошибки выше и запустите скрипт снова."
 }
 
 # ─── Подготовка директорий ────────────────────────────────────────────────────
