@@ -26,7 +26,6 @@ die()   { echo -e "${RED}[ERROR]${RESET} $*" >&2; exit 1; }
 [[ -f "docker-compose.yml" ]] || die "Запустите из корня проекта (где docker-compose.yml)"
 
 if [[ -z "$EMAIL" ]]; then
-  # Пробуем прочитать из .env
   if [[ -f .env ]]; then
     EMAIL=$(grep -oP '^CERTBOT_EMAIL=\K.*' .env 2>/dev/null || true)
   fi
@@ -49,7 +48,7 @@ echo -e "${BOLD}${CYAN}═══════════════════
 echo ""
 info "Домен:  $DOMAIN"
 info "Email:  $EMAIL"
-[[ "$STAGING" == "1" ]] && warn "Тест-режим: сертификат будет self-signed (не добавится в браузер)"
+[[ "$STAGING" == "1" ]] && warn "Тест-режим: сертификат не будет валидным в браузере"
 
 # ─── Проверка: сертификат уже существует? ─────────────────────────────────────
 if [[ -d "$DATA_PATH/conf/live/$DOMAIN" ]]; then
@@ -57,6 +56,57 @@ if [[ -d "$DATA_PATH/conf/live/$DOMAIN" ]]; then
   warn "Для принудительного перевыпуска удалите эту директорию и запустите снова."
   exit 0
 fi
+
+# ─── Preflight: доступность порта 80 снаружи ──────────────────────────────────
+check_port_80() {
+  info "Проверяю доступность порта 80 снаружи..."
+  # Пробуем достучаться до ACME-challenge пути с самого сервера через публичный IP
+  local http_code
+  http_code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 5 \
+    "http://${DOMAIN}/.well-known/acme-challenge/preflight-test" 2>/dev/null || echo "000")
+
+  if [[ "$http_code" == "000" ]]; then
+    echo ""
+    echo -e "${RED}╔══════════════════════════════════════════════════════════════╗${RESET}"
+    echo -e "${RED}║  ОШИБКА: Порт 80 недоступен снаружи                         ║${RESET}"
+    echo -e "${RED}╠══════════════════════════════════════════════════════════════╣${RESET}"
+    echo -e "${RED}║  Let's Encrypt не сможет пройти HTTP-01 challenge            ║${RESET}"
+    echo -e "${RED}║                                                              ║${RESET}"
+    echo -e "${RED}║  Проверьте и исправьте:                                      ║${RESET}"
+    echo -e "${RED}║  1. Firewall на сервере:                                     ║${RESET}"
+    echo -e "${RED}║     sudo ufw allow 80/tcp && sudo ufw allow 443/tcp          ║${RESET}"
+    echo -e "${RED}║     sudo ufw reload                                          ║${RESET}"
+    echo -e "${RED}║  2. Security Group / Network ACL облачного провайдера:       ║${RESET}"
+    echo -e "${RED}║     Разрешите inbound TCP 80 и 443 из 0.0.0.0/0             ║${RESET}"
+    echo -e "${RED}║  3. Убедитесь, что DNS $DOMAIN → IP этого сервера  ║${RESET}"
+    echo -e "${RED}╚══════════════════════════════════════════════════════════════╝${RESET}"
+    echo ""
+    die "Устраните блокировку порта 80 и запустите скрипт снова."
+  fi
+
+  # 404 = nginx работает, путь просто не существует — это нормально
+  ok "Порт 80 доступен (HTTP $http_code)"
+}
+
+# ─── Ожидание готовности nginx ────────────────────────────────────────────────
+wait_for_nginx() {
+  info "Жду готовности nginx на порту 80..."
+  local retries=30
+  while [[ $retries -gt 0 ]]; do
+    if curl -sf --max-time 2 "http://127.0.0.1/" &>/dev/null || \
+       curl -s  --max-time 2 "http://127.0.0.1/" -o /dev/null -w "%{http_code}" 2>/dev/null | grep -q '^[0-9]'; then
+      ok "nginx отвечает"
+      return 0
+    fi
+    retries=$((retries - 1))
+    echo -n "."
+    sleep 2
+  done
+  echo ""
+  warn "nginx не отвечает за 60 секунд. Проверьте логи: $COMPOSE logs nginx"
+  $COMPOSE ps
+  die "nginx не поднялся"
+}
 
 # ─── Подготовка директорий ────────────────────────────────────────────────────
 info "Создаю директории для certbot..."
@@ -74,10 +124,16 @@ $COMPOSE run --rm --no-deps --entrypoint \
   certbot
 ok "Временный сертификат создан"
 
-# ─── Запуск nginx с временным сертификатом ────────────────────────────────────
-info "Запускаю nginx..."
-$COMPOSE up --force-recreate -d nginx
-ok "nginx запущен"
+# ─── Запускаем все сервисы ────────────────────────────────────────────────────
+info "Запускаю все сервисы (включая nginx)..."
+$COMPOSE up -d
+ok "Сервисы запущены"
+
+# ─── Ждём, пока nginx реально готов ──────────────────────────────────────────
+wait_for_nginx
+
+# ─── Проверяем, что порт 80 доступен снаружи ─────────────────────────────────
+check_port_80
 
 # ─── Удаляем временный сертификат ─────────────────────────────────────────────
 info "Удаляю временный сертификат..."
