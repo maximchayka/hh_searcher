@@ -165,15 +165,18 @@ setup_env() {
 
   # Определяем IP и прописываем ALLOWED_ORIGINS в JSON-формате (требует pydantic-settings)
   MACHINE_IP=$(detect_ip)
-  if [[ -n "$MACHINE_IP" ]]; then
-    ALLOWED_ORIGINS='["http://localhost:3000","http://'"${MACHINE_IP}"':3000"]'
-    info "Определён IP машины: ${MACHINE_IP}"
-  else
-    ALLOWED_ORIGINS='["http://localhost:3000"]'
-    warn "Не удалось определить IP машины — используем только localhost"
-  fi
+  ALLOWED_ORIGINS='["https://jobsearch.infoteq.ru"]'
   sed_inplace "s|^ALLOWED_ORIGINS=.*|ALLOWED_ORIGINS=${ALLOWED_ORIGINS}|" .env
   success "ALLOWED_ORIGINS установлен: ${ALLOWED_ORIGINS}"
+
+  # Запрашиваем email для certbot (Let's Encrypt)
+  read -rp "Введите email для Let's Encrypt (SSL-уведомления): " certbot_email
+  if [[ -n "$certbot_email" ]]; then
+    sed_inplace "s|^CERTBOT_EMAIL=.*|CERTBOT_EMAIL=${certbot_email}|" .env
+    success "CERTBOT_EMAIL сохранён"
+  else
+    warn "CERTBOT_EMAIL не задан — заполните его в .env перед запуском init-letsencrypt.sh"
+  fi
 
   echo ""
   echo -e "${YELLOW}┌─────────────────────────────────────────────┐${RESET}"
@@ -282,7 +285,7 @@ build_and_run() {
 # ─── Ожидание готовности ──────────────────────────────────────────────────────
 wait_for_backend() {
   header "Ожидание готовности бэкенда"
-  local url="http://localhost:8000/health"
+  local url="http://127.0.0.1:8000/health"
   local retries=40
   local wait=3
 
@@ -312,20 +315,17 @@ show_status() {
   echo -e "${BOLD}${GREEN}╔══════════════════════════════════════════════════════╗${RESET}"
   echo -e "${BOLD}${GREEN}║             JobAutoApply запущен!                    ║${RESET}"
   echo -e "${BOLD}${GREEN}╠══════════════════════════════════════════════════════╣${RESET}"
-  echo -e "${BOLD}${GREEN}║  Frontend:   http://localhost:3000                   ║${RESET}"
-  echo -e "${BOLD}${GREEN}║  Backend:    http://localhost:8000                   ║${RESET}"
-  echo -e "${BOLD}${GREEN}║  API Docs:   http://localhost:8000/docs              ║${RESET}"
-  if [[ -n "$ip" ]]; then
+  echo -e "${BOLD}${GREEN}║  Сайт (HTTPS):  https://jobsearch.infoteq.ru        ║${RESET}"
+  echo -e "${BOLD}${GREEN}║  API Docs:      https://jobsearch.infoteq.ru/api/docs║${RESET}"
   echo -e "${BOLD}${GREEN}╠══════════════════════════════════════════════════════╣${RESET}"
-  echo -e "${BOLD}${GREEN}║  По IP (из сети):                                    ║${RESET}"
-  printf "${BOLD}${GREEN}║  Frontend:   http://%-33s║${RESET}\n" "${ip}:3000"
-  printf "${BOLD}${GREEN}║  Backend:    http://%-33s║${RESET}\n" "${ip}:8000"
-  fi
+  echo -e "${BOLD}${GREEN}║  Следующий шаг: выпустить SSL-сертификат             ║${RESET}"
+  echo -e "${BOLD}${GREEN}║  → ./init-letsencrypt.sh                             ║${RESET}"
   echo -e "${BOLD}${GREEN}╚══════════════════════════════════════════════════════╝${RESET}"
   echo ""
   echo -e "Полезные команды:"
   echo -e "  ${CYAN}$COMPOSE_CMD logs -f${RESET}          — логи всех сервисов"
   echo -e "  ${CYAN}$COMPOSE_CMD logs -f backend${RESET}  — логи только бэкенда"
+  echo -e "  ${CYAN}$COMPOSE_CMD logs -f nginx${RESET}    — логи nginx"
   echo -e "  ${CYAN}$COMPOSE_CMD down${RESET}             — остановить"
   echo -e "  ${CYAN}$COMPOSE_CMD down -v${RESET}          — остановить и удалить данные"
   echo ""
