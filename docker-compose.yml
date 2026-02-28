@@ -100,10 +100,16 @@ services:
     depends_on:
       - frontend
       - backend
-    # Каждые 6 часов перезагружает конфиг — подхватывает обновлённые сертификаты
-    command: >
-      /bin/sh -c "while :; do sleep 6h & wait $${!}; nginx -s reload; done
-                  & nginx -g 'daemon off;'"
+    # Запускает nginx и перезагружает конфиг каждые 6 часов (подхватывает обновлённые сертификаты)
+    # Используем list-форму чтобы избежать двойного экранирования shell/YAML
+    command:
+      - /bin/sh
+      - -c
+      - |
+        nginx -g 'daemon off;' &
+        NGINX_PID=$$!
+        while sleep 6h; do nginx -s reload 2>/dev/null || true; done &
+        wait $$NGINX_PID
 
   # ─── Certbot — автоматический выпуск и обновление сертификатов ───────────
   certbot:
@@ -113,9 +119,16 @@ services:
       - ./nginx/certbot/conf:/etc/letsencrypt
       - ./nginx/certbot/www:/var/www/certbot
     # Проверяет обновление каждые 12 часов; Let's Encrypt продлевает за 30 дней до истечения
-    entrypoint: >
-      /bin/sh -c "trap exit TERM;
-                  while :; do certbot renew; sleep 12h & wait $${!}; done"
+    entrypoint:
+      - /bin/sh
+      - -c
+      - |
+        trap exit TERM
+        while :; do
+          certbot renew
+          sleep 12h &
+          wait $$!
+        done
 
 volumes:
   postgres_data:
